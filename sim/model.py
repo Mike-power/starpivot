@@ -19,6 +19,7 @@ class Task:
     duration: float            # 处理耗时（秒）
     complexity: float          # 0.0 ~ 1.0
     deadline: float            # 超时时刻（created_at + 最大可容忍等待）
+    priority: int = 0          # 0=常规, 1=应急（v0.4 应急重规划场景）
 
     def expired(self, now: float) -> bool:
         return now > self.deadline
@@ -32,14 +33,20 @@ class Metrics:
     succeeded: int = 0
     latency_sum: float = 0.0          # 任务产生 → 处理完成的总延迟
     ground_transfers: int = 0         # 占用星地链路的任务数（链路占用）
+    emergency_total: int = 0          # v0.4：应急任务数
+    emergency_succeeded: int = 0      # v0.4：应急任务成功数
 
-    def record(self, success: bool, latency: float, used_ground_link: bool) -> None:
+    def record(self, success: bool, latency: float, used_ground_link: bool, priority: int = 0) -> None:
         self.total += 1
         if success:
             self.succeeded += 1
             self.latency_sum += latency
         if used_ground_link:
             self.ground_transfers += 1
+        if priority:
+            self.emergency_total += 1
+            if success:
+                self.emergency_succeeded += 1
 
     @property
     def success_rate(self) -> float:
@@ -48,6 +55,11 @@ class Metrics:
     @property
     def avg_latency(self) -> float:
         return self.latency_sum / self.succeeded if self.succeeded else float("inf")
+
+    @property
+    def emergency_success_rate(self) -> float:
+        """v0.4：应急任务成功率（系统对最不能失败任务的保障能力）。"""
+        return self.emergency_succeeded / self.emergency_total if self.emergency_total else float("nan")
 
     def report(self, name: str) -> str:
         return (

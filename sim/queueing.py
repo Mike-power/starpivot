@@ -49,15 +49,15 @@ def _serve_pending(
             served.append(t)
             offset += t.duration
             if completion <= t.deadline:
-                m.record(True, completion - t.created_at, used_ground_link=True)
+                m.record(True, completion - t.created_at, used_ground_link=True, priority=t.priority)
             elif admit == "feasible":   # 必超时：快速失败，把 offset 让出来
                 offset -= t.duration    # 撤销本次占用
-                m.record(False, 0.0, used_ground_link=False)
+                m.record(False, 0.0, used_ground_link=False, priority=t.priority)
             else:                        # 排上队但处理完已超时（v0.3a 行为）
-                m.record(False, 0.0, used_ground_link=True)
+                m.record(False, 0.0, used_ground_link=True, priority=t.priority)
         leftover = [t for t in leftover if t not in served]
-    for _ in leftover:                   # 仿真结束仍未排上队
-        m.record(False, 0.0, used_ground_link=False)
+    for t in leftover:                   # 仿真结束仍未排上队
+        m.record(False, 0.0, used_ground_link=False, priority=t.priority)
     return m
 
 
@@ -98,11 +98,11 @@ def star_ground_coop_queued(
         ground_ok = g_completion is not None and g_completion <= t.deadline
 
         if onboard_ok and (not ground_ok or t.duration < g_completion - t.created_at):
-            m.record(True, t.duration, used_ground_link=False)
+            m.record(True, t.duration, used_ground_link=False, priority=t.priority)
         elif ground_ok:
             pending.append(t)
         else:
-            m.record(False, 0.0, used_ground_link=False)
+            m.record(False, 0.0, used_ground_link=False, priority=t.priority)
     q = _serve_pending(pending, timeline.windows, edf, admit)
     # 合并两部分指标
     m.total += q.total
