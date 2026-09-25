@@ -51,3 +51,12 @@ python rag_demo.py
 ## 验收标准
 
 能对示例文档连续问 3 个问题且回答准确、标注来源，即为跑通——到看板勾掉 p0-t3，并把这段代码 push（绿点 +1）。
+
+## 验收记录
+
+**2026.9.25 已跑通**（LeetCode 同款账号提交，三问全部通过）：星上侧硬件（Jetson Orin）、
+复杂规划归属（地面侧，模型还辨析了"通信受限 ≠ 通信中断"）、专利主点（通信窗口感知的
+星地分层推理调度方法）——答案均准确并标注资料来源。
+
+踩坑备忘（国内网络）：pip 依赖走阿里云镜像 `-i https://mirrors.aliyun.com/pypi/simple/`；
+bge 模型走 `HF_ENDPOINT=https://hf-mirror.com`；`.env` 已验证被 gitignore。
