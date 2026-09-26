@@ -26,6 +26,7 @@ import math
 import random
 from dataclasses import dataclass
 
+from energy import onboard_energy_j
 from model import Metrics, Task
 from queueing import _serve_pending
 from timeline import SyntheticTimeline
@@ -102,10 +103,12 @@ def confidence_routed(
         if prof.confidence >= tau and onboard_ok:
             diag["onboard_accept"] += 1
             if prof.correct:
-                m.record(True, t.duration, used_ground_link=False)
+                m.record(True, t.duration, used_ground_link=False,
+                         e_onboard=onboard_energy_j(t.duration))
             else:
                 diag["false_accept"] += 1
-                m.record(False, 0.0, used_ground_link=False)
+                m.record(False, 0.0, used_ground_link=False,
+                         e_onboard=onboard_energy_j(t.duration))
         elif ground_ok:
             diag["escalated"] += 1
             if prof.correct:
@@ -118,6 +121,8 @@ def confidence_routed(
     m.succeeded += q.succeeded
     m.latency_sum += q.latency_sum
     m.ground_transfers += q.ground_transfers
+    m.energy_onboard_j += q.energy_onboard_j
+    m.energy_link_j += q.energy_link_j
     return m, diag
 
 
@@ -143,10 +148,12 @@ def static_threshold_prob(
         if onboard_ok:
             diag["onboard_accept"] += 1
             if prof.correct:
-                m.record(True, t.duration, used_ground_link=False)
+                m.record(True, t.duration, used_ground_link=False,
+                         e_onboard=onboard_energy_j(t.duration))
             else:
                 diag["false_accept"] += 1
-                m.record(False, 0.0, used_ground_link=False)
+                m.record(False, 0.0, used_ground_link=False,
+                         e_onboard=onboard_energy_j(t.duration))
         elif ground_ok:
             diag["escalated"] += 1
             if prof.correct:
@@ -159,6 +166,8 @@ def static_threshold_prob(
     m.succeeded += q.succeeded
     m.latency_sum += q.latency_sum
     m.ground_transfers += q.ground_transfers
+    m.energy_onboard_j += q.energy_onboard_j
+    m.energy_link_j += q.energy_link_j
     return m, diag
 
 
@@ -168,5 +177,7 @@ def pure_star_prob(tasks: list[Task], profiles: dict[int, ConfidenceProfile]) ->
     for t in tasks:
         prof = profiles[t.task_id]
         ok = prof.correct and t.created_at + t.duration <= t.deadline
-        m.record(ok, t.duration if ok else 0.0, used_ground_link=False)
+        # 只要星上跑了推理就耗能（答错、超时的尝试同样耗电）
+        m.record(ok, t.duration if ok else 0.0, used_ground_link=False,
+                 e_onboard=onboard_energy_j(t.duration))
     return m

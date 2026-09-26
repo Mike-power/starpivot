@@ -35,8 +35,18 @@ class Metrics:
     ground_transfers: int = 0         # 占用星地链路的任务数（链路占用）
     emergency_total: int = 0          # v0.4：应急任务数
     emergency_succeeded: int = 0      # v0.4：应急任务成功数
+    energy_onboard_j: float = 0.0     # v0.7：星上推理累计能耗（焦耳）
+    energy_link_j: float = 0.0        # v0.7：星地链路累计能耗（焦耳）
 
-    def record(self, success: bool, latency: float, used_ground_link: bool, priority: int = 0) -> None:
+    def record(
+        self,
+        success: bool,
+        latency: float,
+        used_ground_link: bool,
+        priority: int = 0,
+        e_onboard: float = 0.0,   # v0.7：本次星上推理能耗（J）
+        e_link: float = 0.0,      # v0.7：本次链路传输能耗（J）
+    ) -> None:
         self.total += 1
         if success:
             self.succeeded += 1
@@ -47,6 +57,8 @@ class Metrics:
             self.emergency_total += 1
             if success:
                 self.emergency_succeeded += 1
+        self.energy_onboard_j += e_onboard
+        self.energy_link_j += e_link
 
     @property
     def success_rate(self) -> float:
@@ -61,8 +73,23 @@ class Metrics:
         """v0.4：应急任务成功率（系统对最不能失败任务的保障能力）。"""
         return self.emergency_succeeded / self.emergency_total if self.emergency_total else float("nan")
 
+    @property
+    def energy_total_wh(self) -> float:
+        """v0.7：系统总能耗（Wh）= 星上推理 + 链路传输。"""
+        from energy import to_wh
+        return to_wh(self.energy_onboard_j + self.energy_link_j)
+
+    @property
+    def energy_per_success_wh(self) -> float:
+        """v0.7：单成功任务能耗（Wh/个）——能效核心指标。"""
+        from energy import to_wh
+        if not self.succeeded:
+            return float("inf")
+        return to_wh(self.energy_onboard_j + self.energy_link_j) / self.succeeded
+
     def report(self, name: str) -> str:
         return (
             f"[{name}] 任务 {self.total} | 成功率 {self.success_rate:.0%} | "
-            f"平均延迟 {self.avg_latency:8.1f}s | 链路占用 {self.ground_transfers}"
+            f"平均延迟 {self.avg_latency:8.1f}s | 链路占用 {self.ground_transfers} | "
+            f"能耗 {self.energy_total_wh:.2f}Wh"
         )

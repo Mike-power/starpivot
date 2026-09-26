@@ -11,6 +11,7 @@ v0.3 更贴近真实链路：
 推理调度方法"的第二个技术特征；FCFS 对照组构成消融实验。
 """
 
+from energy import link_energy_j, onboard_energy_j
 from model import Metrics, Task
 from timeline import ContactWindow, SyntheticTimeline
 
@@ -49,12 +50,16 @@ def _serve_pending(
             served.append(t)
             offset += t.duration
             if completion <= t.deadline:
-                m.record(True, completion - t.created_at, used_ground_link=True, priority=t.priority)
+                m.record(True, completion - t.created_at, used_ground_link=True, priority=t.priority,
+                         e_link=link_energy_j(t.duration))
             elif admit == "feasible":   # 必超时：快速失败，把 offset 让出来
                 offset -= t.duration    # 撤销本次占用
-                m.record(False, 0.0, used_ground_link=False, priority=t.priority)
+                # 能耗照常计入：数据已物理发出，结果虽被丢弃，电已经花了
+                m.record(False, 0.0, used_ground_link=False, priority=t.priority,
+                         e_link=link_energy_j(t.duration))
             else:                        # 排上队但处理完已超时（v0.3a 行为）
-                m.record(False, 0.0, used_ground_link=True, priority=t.priority)
+                m.record(False, 0.0, used_ground_link=True, priority=t.priority,
+                         e_link=link_energy_j(t.duration))
         leftover = [t for t in leftover if t not in served]
     for t in leftover:                   # 仿真结束仍未排上队
         m.record(False, 0.0, used_ground_link=False, priority=t.priority)
@@ -98,7 +103,8 @@ def star_ground_coop_queued(
         ground_ok = g_completion is not None and g_completion <= t.deadline
 
         if onboard_ok and (not ground_ok or t.duration < g_completion - t.created_at):
-            m.record(True, t.duration, used_ground_link=False, priority=t.priority)
+            m.record(True, t.duration, used_ground_link=False, priority=t.priority,
+                     e_onboard=onboard_energy_j(t.duration))
         elif ground_ok:
             pending.append(t)
         else:
@@ -109,4 +115,6 @@ def star_ground_coop_queued(
     m.succeeded += q.succeeded
     m.latency_sum += q.latency_sum
     m.ground_transfers += q.ground_transfers
+    m.energy_onboard_j += q.energy_onboard_j
+    m.energy_link_j += q.energy_link_j
     return m

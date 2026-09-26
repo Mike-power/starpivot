@@ -14,6 +14,7 @@ v0.1 的局限是假设链路无限带宽；v0.2 把"窗口满员"纳入决策�
   - 星上置信度决策：小模型不确定时主动上送，减少返工
 """
 
+from energy import link_energy_j, onboard_energy_j
 from model import Metrics, Task
 from timeline import SyntheticTimeline
 
@@ -43,10 +44,12 @@ def star_ground_coop(
 
         # 贪心决策：可行方案取延迟最小；并列优先星上（把链路槽位让给别的任务）
         if onboard_ok and (onboard_latency <= ground_latency):
-            m.record(True, onboard_latency, used_ground_link=False)
+            m.record(True, onboard_latency, used_ground_link=False,
+                     e_onboard=onboard_energy_j(t.duration))
         elif ground_ok:
             timeline.commit(w, t.created_at)
-            m.record(True, ground_latency, used_ground_link=True)
+            m.record(True, ground_latency, used_ground_link=True,
+                     e_link=link_energy_j(t.duration))
         else:
             m.record(False, 0.0, used_ground_link=False)
     return m

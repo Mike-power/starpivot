@@ -8,6 +8,7 @@ STAR_ONLY:   纯星上——只有复杂度 <= 星上能力阈值的任务能在
 链路容量约束（窗口槽位有限）对所有使用链路的策略一视同仁。
 """
 
+from energy import link_energy_j, onboard_energy_j
 from model import Metrics, Task
 from timeline import SyntheticTimeline
 
@@ -21,9 +22,10 @@ def ground_only(tasks: list[Task], timeline: SyntheticTimeline) -> Metrics:
             continue
         start = timeline.commit(w, t.created_at)
         if start + t.duration > t.deadline:
-            m.record(False, 0.0, used_ground_link=True)
+            m.record(False, 0.0, used_ground_link=True, e_link=link_energy_j(t.duration))
         else:
-            m.record(True, start + t.duration - t.created_at, used_ground_link=True)
+            m.record(True, start + t.duration - t.created_at, used_ground_link=True,
+                     e_link=link_energy_j(t.duration))
     return m
 
 
@@ -34,5 +36,6 @@ def star_only(tasks: list[Task], onboard_capability: float = 0.3) -> Metrics:
         if t.complexity > onboard_capability or t.created_at + t.duration > t.deadline:
             m.record(False, 0.0, used_ground_link=False)
         else:
-            m.record(True, t.duration, used_ground_link=False)
+            m.record(True, t.duration, used_ground_link=False,
+                     e_onboard=onboard_energy_j(t.duration))
     return m
