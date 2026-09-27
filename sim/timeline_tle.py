@@ -35,6 +35,63 @@ def _gmst_deg(jd: float, fr: float) -> float:
     return (280.46061837 + 360.98564736629 * d) % 360.0
 
 
+def compute_windows(
+    sat: Satrec,
+    t0: datetime,
+    horizon: float,
+    station_lat: float,
+    station_lon: float,
+    min_elev_deg: float = 10.0,
+    step: float = 20.0,
+) -> list[ContactWindow]:
+    """从 Satrec 计算对单站的过境窗口序列（TleTimeline 与星座时间线共用）。
+
+    每 step 秒采样仰角，连续高于 min_elev_deg 的区段为一个窗口；
+    忽略章动/极移，窗口边界误差 < 1 分钟。
+    """
+    phi, lam = math.radians(station_lat), math.radians(station_lon)
+    sta = (
+        EARTH_R_KM * math.cos(phi) * math.cos(lam),
+        EARTH_R_KM * math.cos(phi) * math.sin(lam),
+        EARTH_R_KM * math.sin(phi),
+    )
+    up = (math.cos(phi) * math.cos(lam), math.cos(phi) * math.sin(lam), math.sin(phi))
+
+    elevations: list[float] = []
+    for i in range(int(horizon / step) + 1):
+        t = t0 + timedelta(seconds=i * step)
+        jd, fr = jday(t.year, t.month, t.day, t.hour, t.minute,
+                      t.second + t.microsecond / 1e6)
+        err, r, _ = sat.sgp4(jd, fr)
+        if err != 0:
+            elevations.append(float("-inf"))
+            continue
+        # TEME → 近似 ECEF：绕 Z 轴旋转 -GMST
+        theta = math.radians(_gmst_deg(jd, fr))
+        sat_ecef = (
+            r[0] * math.cos(theta) + r[1] * math.sin(theta),
+            -r[0] * math.sin(theta) + r[1] * math.cos(theta),
+            r[2],
+        )
+        d = tuple(sat_ecef[k] - sta[k] for k in range(3))
+        dist = math.sqrt(sum(c * c for c in d))
+        sin_elev = sum(d[k] * up[k] for k in range(3)) / dist
+        elevations.append(math.degrees(math.asin(max(-1.0, min(1.0, sin_elev)))))
+
+    windows: list[ContactWindow] = []
+    seg_start = None
+    for i, elev in enumerate(elevations):
+        t_s = i * step
+        if elev >= min_elev_deg and seg_start is None:
+            seg_start = t_s
+        elif elev < min_elev_deg and seg_start is not None:
+            windows.append(ContactWindow(seg_start, t_s, 4))
+            seg_start = None
+    if seg_start is not None:  # 仿真截断了最后一个窗口
+        windows.append(ContactWindow(seg_start, horizon, 4))
+    return windows
+
+
 class TleTimeline:
     """基于 TLE 的过境窗口时间线。
 
@@ -59,50 +116,9 @@ class TleTimeline:
         sat = Satrec.twoline2rv(line1, line2)
 
         self.t0 = datetime.now(timezone.utc)
-
-        # 测站地心坐标与"天顶"单位向量（球面地球近似）
-        phi, lam = math.radians(station_lat), math.radians(station_lon)
-        sta = (
-            EARTH_R_KM * math.cos(phi) * math.cos(lam),
-            EARTH_R_KM * math.cos(phi) * math.sin(lam),
-            EARTH_R_KM * math.sin(phi),
+        self.windows = compute_windows(
+            sat, self.t0, horizon, station_lat, station_lon, min_elev_deg
         )
-        up = (math.cos(phi) * math.cos(lam), math.cos(phi) * math.sin(lam), math.sin(phi))
-
-        # 每 20 秒采样仰角，检测连续高于阈值的区段作为过境窗口
-        step = 20.0
-        elevations: list[float] = []
-        for i in range(int(horizon / step) + 1):
-            t = self.t0 + timedelta(seconds=i * step)
-            jd, fr = jday(t.year, t.month, t.day, t.hour, t.minute,
-                          t.second + t.microsecond / 1e6)
-            err, r, _ = sat.sgp4(jd, fr)
-            if err != 0:
-                elevations.append(float("-inf"))
-                continue
-            # TEME → 近似 ECEF：绕 Z 轴旋转 -GMST
-            theta = math.radians(_gmst_deg(jd, fr))
-            sat_ecef = (
-                r[0] * math.cos(theta) + r[1] * math.sin(theta),
-                -r[0] * math.sin(theta) + r[1] * math.cos(theta),
-                r[2],
-            )
-            d = tuple(sat_ecef[k] - sta[k] for k in range(3))
-            dist = math.sqrt(sum(c * c for c in d))
-            sin_elev = sum(d[k] * up[k] for k in range(3)) / dist
-            elevations.append(math.degrees(math.asin(max(-1.0, min(1.0, sin_elev)))))
-
-        self.windows: list[ContactWindow] = []
-        seg_start = None
-        for i, elev in enumerate(elevations):
-            t_s = i * step
-            if elev >= min_elev_deg and seg_start is None:
-                seg_start = t_s
-            elif elev < min_elev_deg and seg_start is not None:
-                self.windows.append(ContactWindow(seg_start, t_s, capacity))
-                seg_start = None
-        if seg_start is not None:  # 仿真截断了最后一个窗口
-            self.windows.append(ContactWindow(seg_start, horizon, capacity))
 
     def find(self, t: float) -> ContactWindow | None:
         for w in self.windows:
