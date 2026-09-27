@@ -20,6 +20,10 @@ class Task:
     complexity: float          # 0.0 ~ 1.0
     deadline: float            # 超时时刻（created_at + 最大可容忍等待）
     priority: int = 0          # 0=常规, 1=应急（v0.4 应急重规划场景）
+    # --- L2 前缀增量传输（cache=None 时完全不启用，v0.3-v0.7 行为不变）---
+    prefix_id: int = 0         # 共享系统提示前缀的标识（同 workflow 同 id）
+    tx_prefix: float = 0.0     # 前缀首次上行的传输耗时（秒，缓存未命中时支付）
+    tx_delta: float = 0.0      # 任务增量的传输耗时（秒，每次必付）
 
     def expired(self, now: float) -> bool:
         return now > self.deadline
