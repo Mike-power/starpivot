@@ -31,23 +31,26 @@ N_SEEDS = 5
 def main() -> None:
     timeline = TleTimeline(horizon=86400.0)
 
-    # 每行: (标签, tau 或 None, use_cache)
+    # 每行: (标签, tau 或 None, use_cache, retry_onboard)
     variants = [
-        ("置信度路由 τ=0.3（缓存开）", 0.3, True),
-        ("置信度路由 τ=0.5（缓存开）", 0.5, True),
-        ("置信度路由 τ=0.7（缓存开）", 0.7, True),
-        ("置信度路由 τ=0.5（缓存关）", 0.5, False),
-        ("硬阈值 θ=0.3（缓存开）", None, True),
+        ("τ=0.3 无重试", 0.3, True, False),
+        ("τ=0.3 步级重试", 0.3, True, True),
+        ("τ=0.5 无重试", 0.5, True, False),
+        ("τ=0.5 步级重试", 0.5, True, True),
+        ("τ=0.7 无重试", 0.7, True, False),
+        ("τ=0.7 步级重试", 0.7, True, True),
+        ("硬阈值 θ=0.3 步级重试", None, True, True),
     ]
 
     acc = {label: {"succ": [], "lat": [], "link": [], "hit": [], "miss": [],
+                   "retry": [],
                    "f_onboard": [], "f_deadline": [], "f_unfinished": []}
-           for label, _, _ in variants}
+           for label, _, _, _ in variants}
 
     for seed in range(N_SEEDS):
         workflows = gen_workflows(n=N_WF, n_steps=N_STEPS, seed=seed)
         profiles = gen_step_profiles(workflows, seed=seed)
-        for label, tau, use_cache in variants:
+        for label, tau, use_cache, retry in variants:
             if tau is None:
                 # 硬阈值对照：把置信度换成"复杂度是否 ≤ θ"的 0/1 判定
                 hard = {}
@@ -57,15 +60,18 @@ def main() -> None:
                     c = 1.0 if x <= 0.3 else 0.0
                     hard[sid] = type(prof)(correct=prof.correct, confidence=c)
                 m, diag = run_agentflow(workflows, hard, timeline.windows,
-                                        tau=0.5, use_cache=use_cache)
+                                        tau=0.5, use_cache=use_cache,
+                                        retry_onboard=retry)
             else:
                 m, diag = run_agentflow(workflows, profiles, timeline.windows,
-                                        tau=tau, use_cache=use_cache)
+                                        tau=tau, use_cache=use_cache,
+                                        retry_onboard=retry)
             acc[label]["succ"].append(m.success_rate)
             acc[label]["lat"].append(m.avg_latency)
             acc[label]["link"].append(m.ground_transfers)
             acc[label]["hit"].append(diag["prefix_hit"])
             acc[label]["miss"].append(diag["prefix_miss"])
+            acc[label]["retry"].append(diag["retried_steps"])
             acc[label]["f_onboard"].append(diag["fail_onboard_wrong"])
             acc[label]["f_deadline"].append(diag["fail_deadline"])
             acc[label]["f_unfinished"].append(diag["fail_unfinished"])
@@ -79,15 +85,15 @@ def main() -> None:
         "- 前缀语义：全部工作流共享同一智能体应用前缀（60s），"
         "缓存命中后每步只付增量（25s）",
         "- 指标：工作流成功率 | 平均延迟(s) | 链路占用(步数) | 前缀命中/未命中 | "
-        "失败归因(误收/超时/未完成)",
+        "重试步数 | 失败归因(误收/超时/未完成)",
         "",
-        "| 策略 | 成功率 | 平均延迟 | 链路占用 | 前缀命中 | 失败归因(误收/超时/未完成) |",
-        "|---|---|---|---|---|---|",
+        "| 策略 | 成功率 | 平均延迟 | 链路占用 | 前缀命中 | 重试 | 失败归因(误收/超时/未完成) |",
+        "|---|---|---|---|---|---|---|",
     ]
-    for label, _, _ in variants:
+    for label, _, _, _ in variants:
         r = {k: stats.mean(v) for k, v in acc[label].items()}
         row = (f"| {label} | {r['succ']:.0%} | {r['lat']:.0f}s | {r['link']:.0f} | "
-               f"{r['hit']:.0f}/{r['miss']:.0f} | "
+               f"{r['hit']:.0f}/{r['miss']:.0f} | {r['retry']:.0f} | "
                f"{r['f_onboard']:.0f}/{r['f_deadline']:.0f}/{r['f_unfinished']:.0f} |")
         lines.append(row)
         print(row)

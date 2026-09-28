@@ -125,10 +125,12 @@ def run_agentflow(
     edf: bool = True,
     admit: str = "feasible",
     use_cache: bool = True,
+    retry_onboard: bool = False,
 ) -> tuple[Metrics, dict]:
     """事件驱动的多步工作流调度引擎。
 
-    返回 (workflow 级 Metrics, 诊断计数)。
+    retry_onboard（步级补偿）：星上提交答错时不杀工作流，降级把该步
+    送地面排队兜底（占用链路换工作流存活）。返回 (workflow 级 Metrics, 诊断计数)。
     Metrics 以 workflow 为单位 record（成功/延迟/链路占用/能耗）。
     """
     cache: dict | None = {} if use_cache else None
@@ -140,7 +142,7 @@ def run_agentflow(
     m = Metrics()
     diag = {
         "onboard_steps": 0, "ground_steps": 0,
-        "prefix_hit": 0, "prefix_miss": 0,
+        "prefix_hit": 0, "prefix_miss": 0, "retried_steps": 0,
         "fail_onboard_wrong": 0, "fail_deadline": 0, "fail_unfinished": 0,
     }
     by_id = {wf.workflow_id: wf for wf in workflows}
@@ -164,8 +166,20 @@ def run_agentflow(
             prof = profiles[step.step_id]
             onboard_ok = from_time + step.duration <= wf.deadline
             if prof.confidence >= tau and onboard_ok:
-                # 星上提交：即时完成；答错 = 误收，整个 workflow 失败
+                # 星上提交：即时完成；答错 = 误收
                 if not prof.correct:
+                    if retry_onboard:
+                        # 步级补偿：误收不杀工作流，降级送地面兜底
+                        diag["retried_steps"] += 1
+                        pending.append({
+                            "step": step, "ready_at": from_time,
+                            "deadline": wf.deadline, "wid": wf.workflow_id,
+                        })
+                        diag["ground_steps"] += 1
+                        st.idx += 1
+                        st.ready = from_time
+                        st.waiting = True
+                        return
                     fail(wf.workflow_id, "onboard_wrong", from_time)
                     return
                 diag["onboard_steps"] += 1
