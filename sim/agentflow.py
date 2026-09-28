@@ -245,13 +245,11 @@ def run_agentflow(
                     fail(e["wid"], "deadline", completion)
                     offset += tx                 # v0.3a 语义：占用带宽但失败
                     continue
-            # 地面步完成且答对 → 推进后续 onboard 链
+            # 地面步完成 → 推进后续 onboard 链
+            # 建模假设：地面大模型答案正确（profile.correct 是星上小模型的
+            # 实现，不能套用到地面步）——星上误收已由 retry/误收死路径刻画
             offset += tx
             m.ground_transfers += 1
-            prof = profiles[step.step_id]
-            if not prof.correct:
-                fail(e["wid"], "onboard_wrong", completion)   # 地面答错（罕见）
-                continue
             pending.remove(e)
             advance(by_id[e["wid"]], completion)
 
