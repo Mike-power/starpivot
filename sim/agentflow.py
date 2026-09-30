@@ -45,6 +45,9 @@ class AgentStep:
     prefix_id: int = 1           # 同一智能体应用的全部 workflow 共享前缀
     tx_prefix: float = 60.0      # 前缀首次上行的传输耗时（缓存未命中支付）
     tx_delta: float = 25.0       # 步骤增量传输耗时（每次必付，假设值）
+    # --- v0.9 TTFT/TPOT（0 = 未启用，保持 duration 语义，回归保障）---
+    input_tokens: int = 0        # 本步 prompt token 数（含共享前缀部分）
+    output_tokens: int = 0       # 本步期望输出 token 数
 
 
 @dataclass
@@ -126,12 +129,19 @@ def run_agentflow(
     admit: str = "feasible",
     use_cache: bool = True,
     retry_onboard: bool = False,
+    serve_fn=None,
 ) -> tuple[Metrics, dict]:
     """事件驱动的多步工作流调度引擎。
 
     retry_onboard（步级补偿）：星上提交答错时不杀工作流，降级把该步
     送地面排队兜底（占用链路换工作流存活）。返回 (workflow 级 Metrics, 诊断计数)。
     Metrics 以 workflow 为单位 record（成功/延迟/链路占用/能耗）。
+
+    serve_fn（v0.9）：可插拔服务耗时函数 (step, cache) ->
+    (tx_seconds, compute_seconds)，见 inference.serve_time。窗口占用只
+    加 tx，地面步完成时刻 = 窗口时刻 + tx + compute（compute 为窗口后
+    地面推理，不占带宽）。传 None 时 tx=_tx_time、compute=0，
+    与 v0.8 行为完全一致（回归保障）。
     """
     cache: dict | None = {} if use_cache else None
     states = {
@@ -224,8 +234,11 @@ def run_agentflow(
         offset = 0.0
         for e in candidates:
             step = e["step"]
-            tx = _tx_time(step, cache)
-            completion = w.start + offset + tx
+            if serve_fn is not None:
+                tx, compute = serve_fn(step, cache)
+            else:
+                tx, compute = _tx_time(step, cache), 0.0
+            completion = w.start + offset + tx + compute
             if completion > w.end:
                 break                            # 窗口带宽耗尽，顺延下一窗口
             if cache is not None:

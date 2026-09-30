@@ -79,3 +79,18 @@ def serve_time(t: Task, cache: dict | None) -> tuple[float, float]:
     tx = uplink_tokens / TX_TOKENS_PER_S
     compute = uplink_tokens / PREFILL_TOKENS_PER_S + t.output_tokens / DECODE_TOKENS_PER_S
     return tx, compute
+
+
+def assign_step_tokens(workflows, seed: int) -> None:
+    """给 Agent 工作流的每步填 input/output_tokens（就地修改）。
+
+    用独立随机流（seed 偏移 50_000），与 assign_tokens（40_000 段）、
+    gen_workflows（30_000 段）、gen_step_profiles（20_000 段）互不干扰。
+    对 AgentStep 同样适用（duck typing：字段名与 Task 一致），
+    input_tokens=0 时 serve_time 自动退回 duration 语义。
+    """
+    rng = random.Random(50_000 + seed)
+    for wf in workflows:
+        for s in wf.steps:
+            s.input_tokens = rng.randint(200, 2000)
+            s.output_tokens = rng.randint(50, 500)
