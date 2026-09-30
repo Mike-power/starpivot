@@ -37,6 +37,7 @@ def _serve_pending(
     edf: bool,
     admit: str = "all",
     cache: dict | None = None,
+    serve_fn=None,
 ) -> Metrics:
     """串行服务：每个窗口从已产生的等待任务中按策略选任务逐个执行。
 
@@ -52,6 +53,12 @@ def _serve_pending(
     cache 参数（L2）：传 dict 启用前缀增量传输（见 _tx_time），
     首个任务付全量前缀，此后地面前缀缓存命中（对接 ground 侧 vLLM
     prefix caching 的创新点③）；传 None 保持 duration 语义。
+
+    serve_fn 参数（v0.9）：可插拔服务耗时函数 (task, cache) ->
+    (tx_seconds, compute_seconds)，见 inference.serve_time。窗口占用
+    只加 tx_seconds；任务完成时刻 = start + tx + compute（compute
+    为窗口后地面推理时间，不占带宽）。传 None 时 tx=_tx_time、
+    compute=0，与 v0.3-v0.8 行为逐字节一致（回归保障）。
     """
     m = Metrics()
     leftover = sorted(pending, key=lambda t: t.created_at)
@@ -63,9 +70,12 @@ def _serve_pending(
         offset = 0.0
         served = []
         for t in candidates:
-            tx = _tx_time(t, cache)
+            if serve_fn is not None:
+                tx, compute = serve_fn(t, cache)
+            else:
+                tx, compute = _tx_time(t, cache), 0.0
             start = w.start + offset
-            completion = start + tx
+            completion = start + tx + compute
             if completion > w.end:      # 窗口带宽耗尽，剩余顺延
                 break
             served.append(t)
@@ -101,6 +111,7 @@ def star_ground_coop_queued(
     edf: bool = True,
     admit: str = "all",
     cache: dict | None = None,
+    serve_fn=None,
 ) -> Metrics:
     """星地协同 v0.3：星上决策 + 地面排队。
 
@@ -110,6 +121,7 @@ def star_ground_coop_queued(
 
     cache（L2）：传 dict 启用前缀增量传输，地面估计按 _tx_time 口径
     （缓存未命中按全量前缀估计，偏保守）。
+    serve_fn（v0.9）：透传给 _serve_pending，见该函数文档。
     """
     pending: list[Task] = []
     m = Metrics()
@@ -120,11 +132,14 @@ def star_ground_coop_queued(
             and t.created_at + t.duration <= t.deadline
         )
         # 选项 A：地面乐观估计（独占最早可行窗口）
-        tx = _tx_time(t, cache)
+        if serve_fn is not None:
+            tx, compute = serve_fn(t, cache)
+        else:
+            tx, compute = _tx_time(t, cache), 0.0
         g_completion = None
         for w in timeline.windows:
             if w.end >= t.created_at:
-                comp = max(w.start, t.created_at) + tx
+                comp = max(w.start, t.created_at) + tx + compute
                 if comp <= w.end:
                     g_completion = comp
                     break
@@ -137,7 +152,7 @@ def star_ground_coop_queued(
             pending.append(t)
         else:
             m.record(False, 0.0, used_ground_link=False, priority=t.priority)
-    q = _serve_pending(pending, timeline.windows, edf, admit, cache)
+    q = _serve_pending(pending, timeline.windows, edf, admit, cache, serve_fn)
     # 合并两部分指标
     m.total += q.total
     m.succeeded += q.succeeded

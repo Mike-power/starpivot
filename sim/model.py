@@ -24,6 +24,9 @@ class Task:
     prefix_id: int = 0         # 共享系统提示前缀的标识（同 workflow 同 id）
     tx_prefix: float = 0.0     # 前缀首次上行的传输耗时（秒，缓存未命中时支付）
     tx_delta: float = 0.0      # 任务增量的传输耗时（秒，每次必付）
+    # --- v0.9 TTFT/TPOT 真实推理延迟（0 = 未启用，保持 duration 语义）---
+    input_tokens: int = 0      # 任务 prompt token 数（含共享前缀部分）
+    output_tokens: int = 0     # 期望输出 token 数
 
     def expired(self, now: float) -> bool:
         return now > self.deadline
