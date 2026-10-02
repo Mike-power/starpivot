@@ -21,6 +21,39 @@ from sgp4.api import Satrec
 from timeline import ContactWindow
 from timeline_tle import DATA_DIR, STATION_LAT, STATION_LON, compute_windows
 
+# 论文 v1.1 冻结锚点：全部 L 系列工作流实验的窗口几何以该 UTC 时刻为
+# 仿真起点（= 北京 2026-10-02 08:23，v1.1 冻结轮 l6c/l6d 的实际运行时刻，
+# 已验证逐行复现论文表格：N=8 duration 87%、0/6/0）。
+# 引用论文数字时必须用此锚定复现；None 则回到"当前时刻"语义（窗口随运行日期漂移）。
+FROZEN_EPOCH = "2026-10-02T00:23:00+00:00"
+
+# 冻结窗口缓存：锚定 epoch 下生成的窗口序列被序列化到 JSON，
+# 之后任何日期重跑都加载逐字节一致的窗口（成功率、计数全部复现，
+# 不再受运行日期影响）。删除缓存文件即回到 epoch 重算。
+FROZEN_DIR = DATA_DIR / "frozen_windows"
+
+
+def _frozen_path(n_sats: int, epoch_iso: str) -> Path:
+    safe = epoch_iso.replace(":", "").replace("+", "p")
+    return FROZEN_DIR / f"N{n_sats}_{safe}.json"
+
+
+def _save_frozen(path: Path, n_sats: int, epoch_iso: str,
+                 windows: list) -> None:
+    import json
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "n_sats": n_sats, "epoch": epoch_iso,
+        "windows": [[w.start, w.end, w.capacity] for w in windows],
+    }
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _load_frozen(path: Path) -> list:
+    import json
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return [ContactWindow(s, e, c) for s, e, c in payload["windows"]]
+
 
 class ConstellationTimeline:
     """N 星等相位星座 + 单地面站窗口并集。
@@ -41,17 +74,33 @@ class ConstellationTimeline:
         min_elev_deg: float = 10.0,
         horizon: float = 86400.0,
         capacity: int = 4,
+        epoch: "datetime | str | None" = None,
     ):
+        """epoch: 锚定仿真的起始 UTC 时刻（datetime 或 ISO 字符串）。
+        None = 当前时刻（默认，窗口随运行日期漂移）；
+        传固定值则窗口几何冻结——论文实验数字的锚定复现入口。
+        冻结缓存：epoch 非 None 时先查 sim/data/frozen_windows/，
+        命中则加载逐字节一致的窗口；未命中则计算并写入缓存。"""
         self.capacity = capacity
         self.horizon = horizon
         self.n_sats = n_sats
+
+        if epoch is None:
+            self.t0 = datetime.now(timezone.utc)
+        elif isinstance(epoch, str):
+            self.t0 = datetime.fromisoformat(epoch)
+        else:
+            self.t0 = epoch
+
+        frozen = None if epoch is None else _frozen_path(n_sats, self.t0.isoformat())
+        if frozen is not None and frozen.exists():
+            self.windows = _load_frozen(frozen)
+            return
 
         text = Path(tle_path).read_text(encoding="utf-8").strip().splitlines()
         line1, line2 = text[1].strip(), text[2].strip()
         # 平近点角 M 在 line2 第 43:51 列（%8.4f 度），其后第 51 列为空格分隔符
         base_ma = float(line2[43:51])
-
-        self.t0 = datetime.now(timezone.utc)
 
         # 逐星生成相位偏移 TLE 并计算各自过境窗口
         all_windows: list[ContactWindow] = []
@@ -73,6 +122,8 @@ class ConstellationTimeline:
             else:
                 merged.append(ContactWindow(w.start, w.end, capacity))
         self.windows = merged
+        if frozen is not None:
+            _save_frozen(frozen, n_sats, self.t0.isoformat(), merged)
 
     def find(self, t: float) -> ContactWindow | None:
         for w in self.windows:

@@ -26,6 +26,7 @@ from pathlib import Path
 
 from agentflow import gen_step_profiles, gen_workflows, run_agentflow
 from inference import assign_step_tokens, serve_time
+from timeline_constellation import FROZEN_EPOCH
 from timeline_tle import TleTimeline
 
 TAUS = (0.3, 0.5)
@@ -42,7 +43,7 @@ MODES = [
 
 
 def main() -> None:
-    timeline = TleTimeline(horizon=86400.0)
+    timeline = TleTimeline(horizon=86400.0, epoch=FROZEN_EPOCH)
 
     labels = [f"τ={tau} {mode[0]}" for tau in TAUS for mode in MODES]
     acc = {lb: {"succ": [], "lat": [], "link": [], "hit": [], "miss": [],

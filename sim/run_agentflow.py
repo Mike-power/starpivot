@@ -20,6 +20,7 @@ from pathlib import Path
 
 from agentflow import gen_step_profiles, gen_workflows, run_agentflow
 from confidence import correctness_prob
+from timeline_constellation import FROZEN_EPOCH
 from timeline_tle import TleTimeline
 
 TAU = (0.3, 0.5, 0.7)
@@ -29,7 +30,7 @@ N_SEEDS = 5
 
 
 def main() -> None:
-    timeline = TleTimeline(horizon=86400.0)
+    timeline = TleTimeline(horizon=86400.0, epoch=FROZEN_EPOCH)
 
     # 每行: (标签, tau 或 None, use_cache, retry_onboard)
     variants = [

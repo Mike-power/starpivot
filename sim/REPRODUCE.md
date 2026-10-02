@@ -23,13 +23,13 @@
 | 4.7 | 能耗效率：帕累托点 | `run_energy_compare.py` | `benchmark/results/energy_compare.md` | 0.93 Wh（τ=0.5）、纯地面 15%、纯星上 37–40% |
 | 4.8 | 星上压缩加速实测 | ⏳ 待 2026.12 Jetson Orin 实测回填 | — | — |
 | 4.9 | 多星组网 scaling | `run_constellation_l4.py` | `benchmark/results/constellation_l4.md` | N=1→8：33%→63%，未饱和 |
-| 4.10 | 多步 Agent 工作流（交付语义翻转 / 超可加） | `run_agentflow.py`（单星）/ `run_agentflow_constellation.py`（组网） | `benchmark/results/agentflow_v0.8.md`、`agentflow_constellation.md` | 补偿 × 组网 +67 点（>+2+39）、N=8 处 85% |
+| 4.10 | 多步 Agent 工作流（交付语义翻转 / 超可加） | `run_agentflow.py`（单星）/ `run_agentflow_constellation.py`（组网） | `benchmark/results/agentflow_v0.8.md`、`agentflow_constellation.md` | 补偿 × 组网 +74 点（>+3+49=+52）、N=8 处 87% |
 | 4.11.1 | 单任务延迟建模（缓存红利翻倍） | `run_inference_l6.py` | `benchmark/results/inference_l6.md` | 省链路秒数 + 省 prefill 的双红利 |
 | 4.11.1 补充 | 前缀缓存专项（L2） | `run_prefix_l2.py` | `benchmark/results/prefix_l2.md` | 缓存命中步近 4 倍便宜 |
 | 4.11.2 | 工作流层 delta-only 传输 | `run_inference_l6b.py` | `benchmark/results/inference_l6b.md` | 工作流成功率 22%→54% |
 | 4.11.3 | 三杠杆叠加与 87% 上限归因 | `run_inference_l6c.py` | `benchmark/results/inference_l6c.md` | 稀缺 regime +23/24 点；N≥4 收敛 87% |
 | 4.11.4 | 在线重规划边界（干净负结果） | `run_inference_l6d.py` | `benchmark/results/inference_l6d.md` | 赌赢率 1/14 ≈ 7%，调度侧杠杆穷尽 |
-| L7 候选 4.13 | 准入控制：过滤 × 截止期协商 × 组合 | `run_admission_l7.py` | `benchmark/results/admission_l7.md` | hybrid 双轴占优（成功率+能耗同升） |
+| 4.13 | 准入控制：过滤 × 截止期协商 × 组合 | `run_admission_l7.py` | `benchmark/results/admission_l7.md` | hybrid 双轴占优（N=8：91%/0.30 Wh vs 基线 87%/0.31 Wh） |
 | 图 3–6 | 主文插图 | `make_figs_3_6.py` | 仓库根 `figures/`（如存在） | — |
 | 图 7 | 星座 scaling 插图 | `make_fig7_constellation.py` | 仓库根 `figures/`（如存在） | — |
 
@@ -43,9 +43,10 @@ bash sim/run_all.sh        # 全量：14 个实验脚本，按论文章节顺序
 可任意单跑（如 `cd sim && python run_inference_l6d.py`）。`make_figs_*.py`
 读取 `benchmark/results/` 产物，需在对应实验跑完后执行。
 
-⚠️ **日期漂移**：TLE 窗口随实际日期变化，重跑 4.2/4.5/4.11 等基于真实轨道的
-实验，成功率可能与论文表格有 ±数点漂移（窗口几何逐日不同，属真实世界因素，
-README v0.9 节已讨论）。论文表格数字以冻结轮（2026.10.2）为准；
+⚠️ **日期漂移与冻结锚点**：TLE 窗口随实际日期变化。4.10–4.13 节工作流实验已冻结
+锚点（`FROZEN_EPOCH = 2026-10-02T00:23Z`，窗口缓存 `sim/data/frozen_windows/*.json`），
+任意日期重跑数字逐字节复现；4.2/4.5/4.9 等单任务实验仍随运行日期有 ±数点漂移
+（窗口几何逐日不同，属真实世界因素，README v0.9 节已讨论）。
 `run_all.sh` 全量运行前会自动把既有 `benchmark/results/` 快照到
 `benchmark/results-archive-<时间戳>/`，冻结记录不会丢失。
 
@@ -56,9 +57,10 @@ README v0.9 节已讨论）。论文表格数字以冻结轮（2026.10.2）为�
 | 纯地面成功率 | 2–5%（4.2 场景 2–3%） | 4.2 |
 | 分层协同（单星） | 33% | 4.2 |
 | 星座 N=8（单任务） | 63% | 4.9 |
-| 工作流 补偿×组网（N=8） | 85%（超可加：+67 > +2+39） | 4.10 |
-| 工作流延迟建模 | 22%→54% | 4.11.2 |
+| 工作流 补偿×组网（N=8） | 87%（超可加：+74 > +3+49=+52） | 4.10 |
+| 工作流延迟建模 | 16%→39% | 4.11.2 |
 | 三杠杆叠加上限 | 87%（N≥4 收敛） | 4.11.3 |
+| 准入 hybrid（N=8，③口径） | 91% / 0.30 Wh（基线 87% / 0.31 Wh，双轴占优） | 4.13 |
 | 单成功能耗 | 0.93 Wh（纯地面 15%、纯星上 37–40%） | 4.7 |
 | 重规划赌赢率 | 1/14 ≈ 7%（负结果） | 4.11.4 |
 | 窗口物理量 | 3–4 次过境/天、17–20 min | 4.1 |

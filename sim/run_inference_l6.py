@@ -29,6 +29,7 @@ from pathlib import Path
 from inference import assign_tokens, serve_time
 from queueing import star_ground_coop_queued
 from scenario import gen_tasks
+from timeline_constellation import FROZEN_EPOCH
 from timeline_tle import TleTimeline
 
 ONBOARD_CAP = 0.3
@@ -44,7 +45,7 @@ VARIANTS = {
 
 
 def main() -> None:
-    timeline = TleTimeline(horizon=86400.0)
+    timeline = TleTimeline(horizon=86400.0, epoch=FROZEN_EPOCH)
 
     acc: dict[str, dict[str, list]] = {
         s: {"success": [], "latency": [], "link": []} for s in VARIANTS

@@ -30,7 +30,7 @@ from pathlib import Path
 
 from agentflow import gen_step_profiles, gen_workflows, run_agentflow
 from inference import assign_step_tokens, serve_time
-from timeline_constellation import ConstellationTimeline
+from timeline_constellation import ConstellationTimeline, FROZEN_EPOCH
 
 N_SATS = (1, 8)
 TAU = 0.3
@@ -87,7 +87,7 @@ def main() -> None:
     ]
 
     for n in N_SATS:
-        timeline = ConstellationTimeline(n_sats=n, horizon=86400.0)
+        timeline = ConstellationTimeline(n_sats=n, horizon=86400.0, epoch=FROZEN_EPOCH)
         for replan_label, replan in REPLANS:
             for mode_label, serve_fn in MODES:
                 succ, lat, link, replanned, replanned_ok, retry_n = [], [], [], [], [], []

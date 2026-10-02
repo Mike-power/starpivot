@@ -27,6 +27,7 @@ from experiments import N_SEEDS, N_TASKS
 from queueing import ground_queued, star_ground_coop_queued
 from scenario import gen_tasks
 from timeline import SyntheticTimeline
+from timeline_constellation import FROZEN_EPOCH
 from timeline_tle import TleTimeline
 
 ONBOARD_CAP = 0.3
@@ -48,7 +49,7 @@ def run_cell(timeline, tasks, coop: bool, use_cache: bool):
 
 
 def main() -> None:
-    tle = TleTimeline(horizon=86400.0)
+    tle = TleTimeline(horizon=86400.0, epoch=FROZEN_EPOCH)
     syn = SyntheticTimeline(period=5400.0, duration=300.0, capacity=999)  # 容量在排队模型下不使用
     scenarios = [("TLE 真实轨道", tle), ("合成稀缺 1.5h×5min", syn)]
 

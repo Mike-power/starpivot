@@ -29,7 +29,7 @@ from pathlib import Path
 from admission import admit_workflows
 from agentflow import gen_step_profiles, gen_workflows, run_agentflow
 from inference import assign_step_tokens, serve_time
-from timeline_constellation import ConstellationTimeline
+from timeline_constellation import ConstellationTimeline, FROZEN_EPOCH
 
 TAU = 0.3
 N_WF = 50
@@ -64,7 +64,7 @@ def main() -> None:
     ]
 
     for n in N_SATS:
-        timeline = ConstellationTimeline(n_sats=n, horizon=86400.0)
+        timeline = ConstellationTimeline(n_sats=n, horizon=86400.0, epoch=FROZEN_EPOCH)
         win_starts = sorted(w.start for w in timeline.windows)
         for pol, pol_label in POLICIES:
             for mode_label, serve_fn in MODES:

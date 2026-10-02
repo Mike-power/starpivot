@@ -107,7 +107,10 @@ class TleTimeline:
         min_elev_deg: float = 10.0,
         horizon: float = 86400.0,
         capacity: int = 4,
+        epoch: "datetime | str | None" = None,
     ):
+        """epoch: 锚定仿真的起始 UTC 时刻（datetime 或 ISO 字符串）。
+        None = 当前时刻；传固定值则窗口几何冻结（论文锚定复现）。"""
         self.capacity = capacity
         self.horizon = horizon
 
@@ -115,7 +118,12 @@ class TleTimeline:
         line1, line2 = text[1].strip(), text[2].strip()
         sat = Satrec.twoline2rv(line1, line2)
 
-        self.t0 = datetime.now(timezone.utc)
+        if epoch is None:
+            self.t0 = datetime.now(timezone.utc)
+        elif isinstance(epoch, str):
+            self.t0 = datetime.fromisoformat(epoch)
+        else:
+            self.t0 = epoch
         self.windows = compute_windows(
             sat, self.t0, horizon, station_lat, station_lon, min_elev_deg
         )
