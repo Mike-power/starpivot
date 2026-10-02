@@ -343,6 +343,7 @@ v0.3 已接入参数扫描（`experiments.py`：period × 窗口时长双因素 
 ```bash
 python sim/main.py          # 三方案对比（无限链路对照组 + 受限链路实验组）
 python sim/experiments.py --save   # 参数扫描，结果落盘 benchmark/results/
+bash sim/run_all.sh         # 一键复现论文全部实验（映射表见 sim/REPRODUCE.md）
 ```
 
 ## 设计说明
