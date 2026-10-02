@@ -130,6 +130,8 @@ def run_agentflow(
     use_cache: bool = True,
     retry_onboard: bool = False,
     serve_fn=None,
+    disruptions: list | None = None,
+    replan_onboard: bool = False,
 ) -> tuple[Metrics, dict]:
     """事件驱动的多步工作流调度引擎。
 
@@ -142,6 +144,19 @@ def run_agentflow(
     加 tx，地面步完成时刻 = 窗口时刻 + tx + compute（compute 为窗口后
     地面推理，不占带宽）。传 None 时 tx=_tx_time、compute=0，
     与 v0.8 行为完全一致（回归保障）。
+
+    disruptions（v0.9d 应急重规划）：window_loss / window_shift 事件
+    列表（emergency.Disruption 同形，duck typing），按 v0.4 语义在
+    每个窗口服务前应用 time <= w.start 的事件——窗口丢失则跳过、
+    抖动则平移，等待中的地面步自动顺延到重排后的窗口序列。
+    传 None 时窗口视为已知的静态排程。insert 事件（应急工作流中途
+    到达）暂未支持，列为后续工作。
+
+    replan_onboard（v0.9d 在线重规划）：每窗口服务前扫描地面队列，
+    对"本窗口乐观服务也必超截止期"（等窗已必死）的就绪步，若星上
+    立即执行还来得及，则降级星上博一把——该步本因 c < τ 被路由到
+    地面，博对则链路都省了、就绪链提前解锁，博错则由 retry_onboard
+    兜底回地面队列（无下行风险）。只赌必死步，期望收益恒非负。
     """
     cache: dict | None = {} if use_cache else None
     states = {
@@ -154,8 +169,21 @@ def run_agentflow(
         "onboard_steps": 0, "ground_steps": 0,
         "prefix_hit": 0, "prefix_miss": 0, "retried_steps": 0,
         "fail_onboard_wrong": 0, "fail_deadline": 0, "fail_unfinished": 0,
+        "windows_lost": 0, "windows_shifted": 0,   # v0.9d 应急统计
+        "replanned_steps": 0,                       # v0.9d 必死步星上博一把
+        "replanned_correct": 0,                     # 博对的步数（赌赢率分子）
     }
     by_id = {wf.workflow_id: wf for wf in workflows}
+
+    # v0.9d：有扰动时拷贝窗口再改动，避免污染共享时间线（同 emergency.run_online）
+    if disruptions is not None:
+        wins = [type(w)(w.start, w.end, w.capacity) for w in windows]
+    else:
+        wins = list(windows)
+    removed: set[int] = set()
+    di = 0                       # disruptions 游标
+    # 名义窗口序列（v0.9d 相位判定用："等下一窗口"的近似参照）
+    win_starts = sorted(x.start for x in wins)
 
     def fail(wid: int, cause: str, now: float) -> None:
         st = states[wid]
@@ -220,13 +248,68 @@ def run_agentflow(
         advance(wf, wf.created_at)
 
     # 窗口服务循环（按开始时刻排序）
-    for w in sorted(windows, key=lambda x: x.start):
+    for wi, w in enumerate(sorted(wins, key=lambda x: x.start)):
+        # v0.9d：窗口服务前应用 time <= w.start 的扰动（在线重规划）
+        if disruptions is not None:
+            while di < len(disruptions) and disruptions[di].time <= w.start:
+                d = disruptions[di]
+                if d.kind == "window_loss":
+                    removed.add(d.window_idx)
+                    diag["windows_lost"] += 1
+                elif d.kind == "window_shift":
+                    target = wins[d.window_idx]
+                    target.start += d.delta
+                    target.end += d.delta
+                    diag["windows_shifted"] += 1
+                di += 1
+            if wi in removed:
+                continue
         # 窗口开始前推进 onboard 链（仅限未被地面步阻塞的 workflow）
         for wf in workflows:
             st = states[wf.workflow_id]
             if (st.alive and not st.waiting
                     and st.idx < len(wf.steps) and st.ready <= w.start):
                 advance(wf, st.ready)
+        # v0.9d 在线重规划：排不上本窗口的地面步，若"等下一窗口也必超
+        # 截止期"（相位必死）且星上立即执行还来得及 → 降级星上博一把；
+        # 博对省链路、就绪链提前解锁，博错由 retry_onboard 兜底回队列。
+        # 只赌必死步（期望收益恒非负），每步只赌一次（防重复烧星上能耗）。
+        # 相位判定用 EDF 序模拟本窗口服务过程（与下方服务循环同序）；
+        # "下一窗口"取名义窗口序列（抖动 ±300s 不改变日级相位结论，近似）。
+        if replan_onboard:
+            later_starts = [s for s in win_starts if s > w.start]
+            nxt = later_starts[0] if later_starts else None
+            ready = sorted((e for e in pending if e["ready_at"] <= w.start),
+                           key=lambda e: (e["deadline"] if edf else e["ready_at"]))
+            offset = 0.0
+            for e in ready:
+                step = e["step"]
+                if serve_fn is not None:
+                    tx, compute = serve_fn(step, cache)
+                else:
+                    tx, compute = _tx_time(step, cache), 0.0
+                comp = w.start + offset + tx + compute
+                if comp <= w.end:
+                    offset += tx             # 本窗口能服务，不赌
+                    continue
+                ground_hopeless = (nxt is None
+                                   or nxt + tx + compute > e["deadline"])
+                onboard_in_time = w.start + step.duration <= e["deadline"]
+                if not (ground_hopeless and onboard_in_time) or e.get("gambled"):
+                    continue
+                e["gambled"] = True
+                diag["replanned_steps"] += 1
+                prof = profiles[step.step_id]
+                if prof.correct:
+                    pending.remove(e)
+                    diag["replanned_correct"] += 1
+                    diag["onboard_steps"] += 1
+                    m.energy_onboard_j += onboard_energy_j(step.duration)
+                    advance(by_id[e["wid"]], w.start + step.duration)
+                elif not retry_onboard:
+                    pending.remove(e)
+                    fail(e["wid"], "onboard_wrong", w.start + step.duration)
+                # 博错且开补偿：留在队列等地面（原路径不变，零损失）
         candidates = [e for e in pending if e["ready_at"] <= w.start]
         if not candidates:
             continue
