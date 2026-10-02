@@ -29,6 +29,7 @@
 | 4.11.2 | 工作流层 delta-only 传输 | `run_inference_l6b.py` | `benchmark/results/inference_l6b.md` | 工作流成功率 22%→54% |
 | 4.11.3 | 三杠杆叠加与 87% 上限归因 | `run_inference_l6c.py` | `benchmark/results/inference_l6c.md` | 稀缺 regime +23/24 点；N≥4 收敛 87% |
 | 4.11.4 | 在线重规划边界（干净负结果） | `run_inference_l6d.py` | `benchmark/results/inference_l6d.md` | 赌赢率 1/14 ≈ 7%，调度侧杠杆穷尽 |
+| L7 候选 4.13 | 准入控制：过滤 × 截止期协商 × 组合 | `run_admission_l7.py` | `benchmark/results/admission_l7.md` | hybrid 双轴占优（成功率+能耗同升） |
 | 图 3–6 | 主文插图 | `make_figs_3_6.py` | 仓库根 `figures/`（如存在） | — |
 | 图 7 | 星座 scaling 插图 | `make_fig7_constellation.py` | 仓库根 `figures/`（如存在） | — |
 

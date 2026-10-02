@@ -57,5 +57,6 @@ run 4.11.1b "前缀缓存专项"                         run_prefix_l2.py
 run 4.11.2 "工作流 delta-only 传输"                run_inference_l6b.py
 run 4.11.3 "三杠杆叠加与 87% 上限"                 run_inference_l6c.py
 run 4.11.4 "在线重规划负结果"                      run_inference_l6d.py
+run L7   "准入控制：过滤×协商×组合"                run_admission_l7.py
 
 echo "完成。结果在 benchmark/results/，映射表见 sim/REPRODUCE.md"
